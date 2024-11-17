@@ -24,39 +24,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 os.environ["OPENAI_API_KEY"] = openai_api_key
 
-# Indexing the textbook PDF
-db_filepath = "../data/psychology.db"
-
-if os.path.exists(db_filepath):
-    vectorstore = Chroma(
-        embedding_function=OpenAIEmbeddings(model="text-embedding-ada-002"),
-        persist_directory=db_filepath,
-        collection_name="wholeTextbookPsych"
-    )
-    print("Database exists, loading from filepath.")
-else:
-    loader = PyPDFLoader("data/psychology.pdf")
-    docs = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000, chunk_overlap=200, add_start_index=True
-    )
-    splits = text_splitter.split_documents(docs)
-    vectorstore = Chroma.from_documents(
-        documents=splits,
-        embedding=OpenAIEmbeddings(model="text-embedding-ada-002"),
-        persist_directory=db_filepath,
-        collection_name="wholeTextbookPsych"
-    )
-    print("Database does not exist, creating new database with filepath:", db_filepath)
-
-retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-
-# Create a tool for the textbook retriever
-textbook_retriever_tool = create_retriever_tool(
-    retriever,
-    "retrieve_textbook_content",
-    "Search and return information from the psychology textbook."
-)
+from Modules.retriever import textbook_retriever_tool
 
 tools = [textbook_retriever_tool]  # Add the new tool to the tools list
 
