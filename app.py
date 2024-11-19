@@ -24,9 +24,9 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 os.environ["OPENAI_API_KEY"] = openai_api_key
 
-from Modules.retriever import textbook_retriever_tool
+from Modules.retriever import textbook_retriever_tool, chapter_retrieval_tools
 
-tools = [textbook_retriever_tool]  # Add the new tool to the tools list
+tools = [textbook_retriever_tool] + chapter_retrieval_tools  # Add the new tool to the tools list
 
 # Define the agent state
 from typing import Annotated, Literal, Sequence, TypedDict
@@ -92,7 +92,7 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
 # Build the workflow
 workflow = StateGraph(AgentState)
 workflow.add_node("agent", agent)
-retrieve = ToolNode([textbook_retriever_tool])
+retrieve = ToolNode(tools)
 workflow.add_node("retrieve", retrieve)
 workflow.add_node("rewrite", rewrite)
 workflow.add_node("generate", generate)
@@ -110,7 +110,7 @@ import pprint
 
 inputs = {
     "messages": [
-        ("user", "What does the psychology textbook say about learned helplessness?"),
+        ("user", "What is learning?"),
     ]
 }
 for output in graph.stream(inputs):
