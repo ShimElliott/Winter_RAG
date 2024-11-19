@@ -1,16 +1,41 @@
 import os
+import pickle
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.tools.retriever import create_retriever_tool
+from langchain.retrievers import ParentDocumentRetriever
+from langchain.storage import InMemoryStore
 
 from langchain_core.documents import Document
 
 from uuid import uuid4
 from PyPDF2 import PdfReader, PdfWriter
 
+NUM_CHAPS = 16
+db_filepath = "Data/psychology.db"
+pdoc_filepath = "Data/parent_docs.pkl"
+
+# Customized child splitter that adds the chapter number
+class CustomChildSplitter(RecursiveCharacterTextSplitter):
+    def split_documents(self, documents):
+        child_docs = []
+        for doc in documents:
+            chunks = self.split_text(doc.page_content)
+
+            chapter_name = doc.metadata["chapter"]
+            for chunk in chunks:
+                child_docs.append(
+                    Document(
+                        page_content= f"{chapter_name}\n{chunk}",
+                        metadata=doc.metadata
+                    )
+                )
+        return child_docs
+
+# Splits the PDF into chapters, given a list of page ranges    
 def split_pdf(input_pdf, page_ranges, output_dir):
     reader = PdfReader(input_pdf)
 
@@ -26,87 +51,95 @@ def split_pdf(input_pdf, page_ranges, output_dir):
             writer.write(f)
         print(f"Chapter {idx+1} saved to {output_pdf}")
 
-# Indexing the textbook PDF
-db_filepath = "Data/psychology.db"
+# Save parent documents into a pickle
+def load_parent_docs(filepath):
+    if os.path.exists(filepath):
+        with open(filepath, "rb") as f:
+            print("Loading parent documents...")
+            return pickle.load(f)
+    print("No parent documents found.")
+    return None
 
-chapter_retrieval_tools = []
+# Unpickle parent documents
+def save_parent_docs(parent_docs, filepath):
+    with open(filepath, "wb") as f:
+        print("Saving parent documents...")
+        pickle.dump(parent_docs, f)
 
-if os.path.exists(db_filepath):
-    vectorstore = Chroma(
-        embedding_function=OpenAIEmbeddings(model="text-embedding-ada-002"),
-        persist_directory=db_filepath,
-        collection_name="wholeTextbookPsych"
-    )
-    print("Database exists, loading from filepath.")
-else:
-    # Split PDF by chapter
+# Gets parent documents
+parent_docs = load_parent_docs(pdoc_filepath)
+
+# Generates parent documents if they don't exist
+if parent_docs is None:
+    output_dir = "Data"
     input_pdf = "Data/wholeTextbookPsych.pdf"
+
     page_ranges = [
         (19,46),(47,82),(83,120),(121,156),
         (157,192),(193,224),(225,258),(259,290),
         (291,332),(333,370),(371,410),(411,458),
         (459,496),(497,548),(549,610),(611,644)
     ]
-    output_dir = "Data"
+
+    print("No parent documents found, generating new ones...")
 
     split_pdf(input_pdf, page_ranges, output_dir)
 
-    docs = []
+    # Creates parent documents with a large and complete context
+    parent_docs = []
 
-    numChaps = 16
-
-    for i in range(1,numChaps+1):
+    for i in range(1,NUM_CHAPS+1):
         file_path = f"Data/chapter{i}.pdf"
         loader = PyPDFLoader(file_path)
         full_chapter = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000, chunk_overlap=200, add_start_index=True
-        )
-        splits = text_splitter.split_documents(full_chapter)
-
-        for split in splits:
-            split.metadata["chapter"] = i
-            docs.append(split)
-
-        chap_db_filepath = f"Data/chapter{i}.db"
-
-        if os.path.exists(chap_db_filepath):
-            chap_vectorstore = Chroma(
-                embedding_function=OpenAIEmbeddings(model="text-embedding-ada-002"),
-                persist_directory=chap_db_filepath,
-                collection_name=f"chapter{i}"
+        parent_docs.append(
+            Document(
+                page_content=full_chapter[0].page_content,
+                metadata={"chapter": f"Chapter {i}"}
             )
-            print("Chapter " + str(i) + " database exists, loading from filepath.")
-        else:
-            print("Chapter " + str(i) + " database does not exist, creating new database with filepath:", chap_db_filepath)
-            
-            chap_vectorstore = Chroma.from_documents(
-                documents=splits,
-                embedding=OpenAIEmbeddings(model="text-embedding-ada-002"),
-                persist_directory=f"Data/chapter{i}.db",
-                collection_name=f"chapter{i}"
-            )
-
-        chap_retriever = chap_vectorstore.as_retriever(search_type="mmr",search_kwargs={"k": 5, "fetch_k": 10})
-
-        chap_tool = create_retriever_tool(
-            chap_retriever,
-            f"retrieve_chapter{i} content",
-            f"Search and return information from chapter {i} of the psychology textbook."
         )
 
-        chapter_retrieval_tools.append(chap_tool)
+    save_parent_docs(parent_docs, pdoc_filepath)
+    print("Parent documents saved")
 
-    # Initialize the vectorstore
-    vectorstore = Chroma.from_documents(
-        documents=docs,
-        embedding=OpenAIEmbeddings(model="text-embedding-ada-002"),
-        persist_directory=db_filepath,
-        collection_name="wholeTextbookPsych"
-    )
-    print("Database does not exist, creating new database with filepath:", db_filepath)
+    for i in range(1,NUM_CHAPS+1):
+        file_path = f"Data/chapter{i}.pdf"
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Removed {file_path}")
+        
+# Create child document splitter
+child_splitter = CustomChildSplitter(
+    chunk_size=500,
+)
+    
+# Defines the parent splitter
+parent_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=2000,
+)
 
-retriever = vectorstore.as_retriever(search_type="mmr",search_kwargs={"k": 8, "fetch_k": 40})
+# Storage layer for the parent documents
+store = InMemoryStore()
+
+# Create the vectorstore
+vectorstore = Chroma(
+    embedding_function=OpenAIEmbeddings(model="text-embedding-ada-002"),
+    persist_directory=db_filepath,
+    collection_name="wholeTextbookPsych"
+)
+
+# Initialize the Parent Document Retriever
+retriever = ParentDocumentRetriever(
+    vectorstore=vectorstore,
+    docstore=store,
+    child_splitter=child_splitter,
+    parent_splitter=parent_splitter,
+    search_type="mmr",
+    search_kwargs={"k": 3},
+)
+retriever.add_documents(parent_docs)
+
+print("Parent Document Retriever initialized")
 
 # Create a tool for the textbook retriever
 textbook_retriever_tool = create_retriever_tool(

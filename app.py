@@ -24,9 +24,9 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 os.environ["OPENAI_API_KEY"] = openai_api_key
 
-from Modules.retriever import textbook_retriever_tool, chapter_retrieval_tools
+from Modules.retriever import textbook_retriever_tool
 
-tools = [textbook_retriever_tool] + chapter_retrieval_tools  # Add the new tool to the tools list
+tools = [textbook_retriever_tool]  # Add the new tool to the tools list
 
 # Define the agent state
 from typing import Annotated, Literal, Sequence, TypedDict
@@ -110,7 +110,7 @@ import pprint
 
 inputs = {
     "messages": [
-        ("user", "What is learning?"),
+        ("user", "Summarize chapter 1"),
     ]
 }
 for output in graph.stream(inputs):
