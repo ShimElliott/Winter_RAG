@@ -24,9 +24,9 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 os.environ["OPENAI_API_KEY"] = openai_api_key
 
-from Modules.retriever import textbook_retriever_tool
+from Modules.retriever import textbook_retriever_tool, summary_retriever_tool
 
-tools = [textbook_retriever_tool]  # Add the new tool to the tools list
+tools = [summary_retriever_tool, textbook_retriever_tool]  # Add the new tool to the tools list
 
 # Define the agent state
 from typing import Annotated, Literal, Sequence, TypedDict

@@ -107,12 +107,13 @@ def get_parent_docs():
             file_path = f"Data/chapter{i}.pdf"
             loader = PyPDFLoader(file_path)
             full_chapter = loader.load()
-            parent_docs.append(
-                Document(
-                    page_content=full_chapter[0].page_content,
-                    metadata={"chapter": f"Chapter {i}"}
+            for document in full_chapter:
+                parent_docs.append(
+                    Document(
+                        page_content=document.page_content,
+                        metadata={"chapter": f"Chapter {i}"}
+                    )
                 )
-            )
 
         save_parent_docs(parent_docs, pdoc_filepath)
         print("Parent documents saved")
@@ -136,6 +137,8 @@ child_splitter = CustomChildSplitter(
 parent_splitter = RecursiveCharacterTextSplitter(
     chunk_size=2000,
 )
+
+# Define the general document retriever
 
 # Storage layer for the parent documents
 store = InMemoryStore()
@@ -164,4 +167,32 @@ textbook_retriever_tool = create_retriever_tool(
     retriever,
     "retrieve_textbook_content",
     "Search and return information from the psychology textbook."
+)
+
+# Define the summary document retriever
+
+store_sum = InMemoryStore()
+
+child_sum_vectorstore = Chroma(
+    embedding_function=OpenAIEmbeddings(model="text-embedding-ada-002"),
+    collection_name="wholeTextbookPsychSum"
+)
+
+sum_retriever = ParentDocumentRetriever(
+    vectorstore=child_sum_vectorstore,
+    docstore=store_sum,
+    child_splitter=child_splitter,
+    parent_splitter=parent_splitter,
+    search_type="similarity",
+    search_kwargs={"k": 10},
+)
+sum_retriever.add_documents(parent_docs)
+
+print("Summary Document Retriever initialized")
+
+# Create a tool for the summary retriever
+summary_retriever_tool = create_retriever_tool(
+    sum_retriever,
+    "retrieve_textbook_summary",
+    "Search and return a summary of the psychology textbook."
 )
